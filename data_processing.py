@@ -1,9 +1,13 @@
 import pandas as pd
 import random
 import json
+from tokeniser import tokenise  # Import the tokeniser
 
 # Replace with your actual file path
 parquet_file = "data/test-00000-of-00001.parquet"
+
+# Read the Parquet file
+df = pd.read_parquet(parquet_file)
 
 # Replace with your actual column names if different
 query_column = "query"
@@ -17,34 +21,27 @@ df_subset = df.head(100)
 
 # Extract queries and passages
 queries = df_subset[query_column].tolist()
-passages = df_subset[passage_column].tolist()
+passage_info = df_subset[passage_column].tolist()
 
+all_passages = []
+for passages in passage_info:
+    all_passages.extend(passages['passage_text'])
+all_passages = list(set(all_passages))  # Remove duplicates
 
-def get_triples(df_subset):
-    triples = []
-    random_rows = df_subset.sample(n=min(10, len(df_subset)))
+triples = []
 
-    negatives = []
-    for _, rand_row in random_rows.iterrows():
-        passages = rand_row[passage_column]
-        # If passages is a dict, wrap in list for consistency
-        if isinstance(passages, dict):
-            passages = [passages]
-        if passages:
-            chosen = random.choice(passages)
-            negatives.append(chosen['passage_text'])
+for idx, row in df_subset.iterrows():
+    query = row[query_column]
+    passages_list = row[passage_column]
+    positives = passages_list['passage_text']
 
-    for idx, row in df_subset.iterrows():
-        query = row[query_column]
-        passages_list = row[passage_column]
-        positives = passages_list['passage_text'] if isinstance(passages_list, dict) else [p['passage_text'] for p in passages_list]
-        triples.append({
-            "query": query,
-            "positives": positives,
-            "negatives": negatives
-        })
-    return triples
+    # Select 10 random negatives that are not in positives
+    negatives_pool = list(set(all_passages) - set(positives))
+    negatives = random.sample(negatives_pool, min(10, len(negatives_pool)))
+    triples.append({
+        "query": tokenise(query),
+        "positives": [tokenise(p) for p in positives],
+        "negatives": [tokenise(n) for n in negatives],
+    })
 
-triples = get_triples(df_subset)
-
-print(triples)
+# print(triples[0])
