@@ -1,8 +1,8 @@
+numpy<2.0.0
 pandas
 pyarrow
 torch
 fastparquet
-pyarrow
 requests
 wandb
 tqdm
