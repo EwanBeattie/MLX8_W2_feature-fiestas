@@ -34,52 +34,70 @@ for passages in tqdm(passage_info, desc="Extracting passages"):
 all_passages = list(set(all_passages))  # Remove duplicates
 
 logging.info("Generating triples...")
-# Pre-compute all unique passages and their tokenized versions
-logging.info("Pre-computing tokenized passages...")
-all_passages_set = set()
-tokenized_passages = {}  # Cache for tokenized passages
-for passages in tqdm(passage_info, desc="Pre-tokenizing passages"):
-    for passage in passages['passage_text']:
-        if passage not in tokenized_passages:
-            tokenized_passages[passage] = tokenise(passage)
-        all_passages_set.add(passage)
+# Convert to tensors for GPU processing
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+logging.info(f"Using device: {device}")
 
-# Pre-tokenize all queries
-logging.info("Pre-tokenizing queries...")
-tokenized_queries = {query: tokenise(query) for query in tqdm(queries, desc="Tokenizing queries")}
+# Pre-tokenize all passages and queries in parallel
+logging.info("Pre-tokenizing all passages and queries...")
+all_passages = []
+all_queries = []
+for passages in tqdm(passage_info, desc="Collecting passages"):
+    all_passages.extend(passages['passage_text'])
+all_passages = list(set(all_passages))  # Remove duplicates
 
-# Generate triples more efficiently
+# Create a mapping of passage to index for faster lookup
+passage_to_idx = {p: i for i, p in enumerate(all_passages)}
+
+# Tokenize all passages in parallel
+logging.info("Tokenizing passages in parallel...")
+tokenized_passages = torch.tensor([
+    tokenise(p) for p in tqdm(all_passages, desc="Tokenizing passages")
+], device=device)
+
+# Tokenize all queries in parallel
+logging.info("Tokenizing queries in parallel...")
+tokenized_queries = torch.tensor([
+    tokenise(q) for q in tqdm(queries, desc="Tokenizing queries")
+], device=device)
+
+# Generate triples using vectorized operations
 triples = []
 for idx, row in tqdm(df.iterrows(), total=len(df), desc="Generating triples"):
     query = row[query_column]
     passages_list = row[passage_column]
     positives = passages_list['passage_text']
     
-    # Get tokenized query from cache
-    tokenized_query = tokenized_queries[query]
+    # Get indices for positives
+    positive_indices = [passage_to_idx[p] for p in positives]
     
-    # Get tokenized positives from cache
-    tokenized_positives = [tokenized_passages[p] for p in positives]
+    # Create a mask for negatives
+    negative_mask = torch.ones(len(all_passages), dtype=torch.bool, device=device)
+    negative_mask[positive_indices] = False
     
-    # More efficient negative sampling
-    # Create a set of positive passages for this query
-    positive_set = set(positives)
-    
-    # Get all possible negatives in one operation
-    possible_negatives = list(all_passages_set - positive_set)
+    # Get negative indices
+    negative_indices = torch.where(negative_mask)[0]
     
     # Sample negatives
-    num_negatives = min(10, len(possible_negatives))
+    num_negatives = min(10, len(negative_indices))
     if num_negatives > 0:
-        negatives = random.sample(possible_negatives, num_negatives)
-        tokenized_negatives = [tokenized_passages[n] for n in negatives]
+        selected_negatives = negative_indices[torch.randperm(len(negative_indices))[:num_negatives]]
+        negative_passages = tokenized_passages[selected_negatives]
     else:
-        tokenized_negatives = []
+        negative_passages = torch.tensor([], device=device)
     
+    # Get positive passages
+    positive_passages = tokenized_passages[positive_indices]
+    
+    # Get query
+    query_idx = queries.index(query)
+    query_tokens = tokenized_queries[query_idx]
+    
+    # Convert to lists for JSON serialization
     triples.append({
-        "query": tokenized_query,
-        "positives": tokenized_positives,
-        "negatives": tokenized_negatives
+        "query": query_tokens.cpu().tolist(),
+        "positives": positive_passages.cpu().tolist(),
+        "negatives": negative_passages.cpu().tolist()
     })
 
 logging.info("Saving triples to JSON file...")
