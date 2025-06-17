@@ -42,7 +42,11 @@ def collate_fn(batch):
 wandb.init(
     project="two-tower-training",
     config={
-        "wand": None  # will set after loading weights
+        "learning_rate": 1e-3,  # default value
+        "batch_size": 32,       # default value
+        "margin": 0.2,         # default value
+        "epochs": 10,          # default value
+        "embedding_dim": None  # will set after loading weights
     }
 )
 
