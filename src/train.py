@@ -42,10 +42,6 @@ def collate_fn(batch):
 wandb.init(
     project="two-tower-training",
     config={
-        "batch_size": 32,
-        "epochs": 1,
-        "margin": 0.2,
-        "learning_rate": 1e-3,
         "wand": None  # will set after loading weights
     }
 )
@@ -93,7 +89,7 @@ for epoch in range(epochs):
     wandb.log({"epoch": epoch+1, "loss": avg_loss})
 
 # --- Save the model ---
-model_path = './model/two_tower_model.pth'
+model_path = 'two_tower_model.pth'
 torch.save(model.state_dict(), model_path)
 wandb.save(model_path)
 # Optionally, log as artifact:
