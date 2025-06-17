@@ -6,6 +6,7 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
 from model import TwoTowerModel
 import wandb
+from tqdm import tqdm
 
 # --- Custom Dataset ---
 class TripletDataset(Dataset):
@@ -43,7 +44,7 @@ wandb.init(
     project="two-tower-training",
     config={
         "learning_rate": 1e-3,  # default value
-        "batch_size": 32,       # default value
+        "batch_size": 1024,       # default value
         "margin": 0.2,         # default value
         "epochs": 10,          # default value
         "embedding_dim": None  # will set after loading weights
@@ -58,7 +59,7 @@ with open('./data/tokenised/indexed_triples.json', 'r') as f:
 embedding_weights = torch.load('./data/embeddings/2025_06_14__11_23_27.3.cbow.pth')
 embedding_weights = embedding_weights['emb.weight']
 embedding_dim = embedding_weights.shape[1]
-wandb.config.embedding_dim = embedding_dim
+wandb.config.update({"embedding_dim": embedding_dim}, allow_val_change=True)
 
 dataset = TripletDataset(triples)
 batch_size = wandb.config.batch_size
@@ -75,7 +76,8 @@ margin = wandb.config.margin
 for epoch in range(epochs):
     model.train()
     total_loss = 0
-    for queries_padded, qry_lens, positives_padded, pos_lens, negatives_padded, neg_lens in loader:
+    # Wrap loader with tqdm for progress bar
+    for queries_padded, qry_lens, positives_padded, pos_lens, negatives_padded, neg_lens in tqdm(loader, desc=f"Epoch {epoch+1}/{epochs}"):
         optimizer.zero_grad()
         qry_vec = model.qry_tower(queries_padded, qry_lens)
         pos_vec = model.doc_tower(positives_padded, pos_lens)
