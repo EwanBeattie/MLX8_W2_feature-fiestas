@@ -34,61 +34,52 @@ for passages in tqdm(passage_info, desc="Extracting passages"):
 all_passages = list(set(all_passages))  # Remove duplicates
 
 logging.info("Generating triples...")
-# Convert to tensors for GPU processing
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-logging.info(f"Using device: {device}")
+# Pre-compute all unique passages and their tokenized versions
+logging.info("Pre-computing tokenized passages...")
+all_passages_set = set()
+tokenized_passages = {}  # Cache for tokenized passages
+for passages in tqdm(passage_info, desc="Pre-tokenizing passages"):
+    for passage in passages['passage_text']:
+        if passage not in tokenized_passages:
+            tokenized_passages[passage] = tokenise(passage)
+        all_passages_set.add(passage)
 
-# Pre-tokenize all passages and queries
-logging.info("Pre-tokenizing all passages and queries...")
-all_passages = []
-all_queries = []
-for passages in tqdm(passage_info, desc="Collecting passages"):
-    all_passages.extend(passages['passage_text'])
-all_passages = list(set(all_passages))  # Remove duplicates
+# Pre-tokenize all queries
+logging.info("Pre-tokenizing queries...")
+tokenized_queries = {query: tokenise(query) for query in tqdm(queries, desc="Tokenizing queries")}
 
-# Create a mapping of passage to index for faster lookup
-passage_to_idx = {p: i for i, p in enumerate(all_passages)}
-
-# Tokenize all passages
-logging.info("Tokenizing passages...")
-tokenized_passages = [tokenise(p) for p in tqdm(all_passages, desc="Tokenizing passages")]
-
-# Tokenize all queries
-logging.info("Tokenizing queries...")
-tokenized_queries = [tokenise(q) for q in tqdm(queries, desc="Tokenizing queries")]
-
-# Generate triples using vectorized operations
+# Generate triples more efficiently
 triples = []
 for idx, row in tqdm(df.iterrows(), total=len(df), desc="Generating triples"):
     query = row[query_column]
     passages_list = row[passage_column]
     positives = passages_list['passage_text']
     
-    # Get indices for positives
-    positive_indices = [passage_to_idx[p] for p in positives]
+    # Get tokenized query from cache
+    tokenized_query = tokenized_queries[query]
     
-    # Get negative indices
-    negative_indices = [i for i in range(len(all_passages)) if i not in positive_indices]
+    # Get tokenized positives from cache
+    tokenized_positives = [tokenized_passages[p] for p in positives]
+    
+    # More efficient negative sampling
+    # Create a set of positive passages for this query
+    positive_set = set(positives)
+    
+    # Get all possible negatives in one operation
+    possible_negatives = list(all_passages_set - positive_set)
     
     # Sample negatives
-    num_negatives = min(10, len(negative_indices))
+    num_negatives = min(10, len(possible_negatives))
     if num_negatives > 0:
-        selected_negatives = random.sample(negative_indices, num_negatives)
-        negative_passages = [tokenized_passages[i] for i in selected_negatives]
+        negatives = random.sample(possible_negatives, num_negatives)
+        tokenized_negatives = [tokenized_passages[n] for n in negatives]
     else:
-        negative_passages = []
-    
-    # Get positive passages
-    positive_passages = [tokenized_passages[i] for i in positive_indices]
-    
-    # Get query
-    query_idx = queries.index(query)
-    query_tokens = tokenized_queries[query_idx]
+        tokenized_negatives = []
     
     triples.append({
-        "query": query_tokens,
-        "positives": positive_passages,
-        "negatives": negative_passages
+        "query": tokenized_query,
+        "positives": tokenized_positives,
+        "negatives": tokenized_negatives
     })
 
 logging.info("Saving triples to JSON file...")
