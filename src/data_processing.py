@@ -38,7 +38,7 @@ logging.info("Generating triples...")
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 logging.info(f"Using device: {device}")
 
-# Pre-tokenize all passages and queries in parallel
+# Pre-tokenize all passages and queries
 logging.info("Pre-tokenizing all passages and queries...")
 all_passages = []
 all_queries = []
@@ -49,17 +49,13 @@ all_passages = list(set(all_passages))  # Remove duplicates
 # Create a mapping of passage to index for faster lookup
 passage_to_idx = {p: i for i, p in enumerate(all_passages)}
 
-# Tokenize all passages in parallel
-logging.info("Tokenizing passages in parallel...")
-tokenized_passages = torch.tensor([
-    tokenise(p) for p in tqdm(all_passages, desc="Tokenizing passages")
-], device=device)
+# Tokenize all passages
+logging.info("Tokenizing passages...")
+tokenized_passages = [tokenise(p) for p in tqdm(all_passages, desc="Tokenizing passages")]
 
-# Tokenize all queries in parallel
-logging.info("Tokenizing queries in parallel...")
-tokenized_queries = torch.tensor([
-    tokenise(q) for q in tqdm(queries, desc="Tokenizing queries")
-], device=device)
+# Tokenize all queries
+logging.info("Tokenizing queries...")
+tokenized_queries = [tokenise(q) for q in tqdm(queries, desc="Tokenizing queries")]
 
 # Generate triples using vectorized operations
 triples = []
@@ -71,33 +67,28 @@ for idx, row in tqdm(df.iterrows(), total=len(df), desc="Generating triples"):
     # Get indices for positives
     positive_indices = [passage_to_idx[p] for p in positives]
     
-    # Create a mask for negatives
-    negative_mask = torch.ones(len(all_passages), dtype=torch.bool, device=device)
-    negative_mask[positive_indices] = False
-    
     # Get negative indices
-    negative_indices = torch.where(negative_mask)[0]
+    negative_indices = [i for i in range(len(all_passages)) if i not in positive_indices]
     
     # Sample negatives
     num_negatives = min(10, len(negative_indices))
     if num_negatives > 0:
-        selected_negatives = negative_indices[torch.randperm(len(negative_indices))[:num_negatives]]
-        negative_passages = tokenized_passages[selected_negatives]
+        selected_negatives = random.sample(negative_indices, num_negatives)
+        negative_passages = [tokenized_passages[i] for i in selected_negatives]
     else:
-        negative_passages = torch.tensor([], device=device)
+        negative_passages = []
     
     # Get positive passages
-    positive_passages = tokenized_passages[positive_indices]
+    positive_passages = [tokenized_passages[i] for i in positive_indices]
     
     # Get query
     query_idx = queries.index(query)
     query_tokens = tokenized_queries[query_idx]
     
-    # Convert to lists for JSON serialization
     triples.append({
-        "query": query_tokens.cpu().tolist(),
-        "positives": positive_passages.cpu().tolist(),
-        "negatives": negative_passages.cpu().tolist()
+        "query": query_tokens,
+        "positives": positive_passages,
+        "negatives": negative_passages
     })
 
 logging.info("Saving triples to JSON file...")
