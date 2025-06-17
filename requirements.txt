@@ -1,2 +1,6 @@
 pandas
 pyarrow
+torch
+fastparquet
+pyarrow
+requests
