@@ -5,6 +5,7 @@ import json
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import DataLoader, Dataset
 from model import TwoTowerModel
+import wandb
 
 # --- Custom Dataset ---
 class TripletDataset(Dataset):
@@ -37,6 +38,18 @@ def collate_fn(batch):
     negatives_padded = pad_sequence(negatives, batch_first=True, padding_value=0)
     return queries_padded, qry_lens, positives_padded, pos_lens, negatives_padded, neg_lens
 
+# --- Initialize wandb ---
+wandb.init(
+    project="two-tower-training",
+    config={
+        "batch_size": 32,
+        "epochs": 1,
+        "margin": 0.2,
+        "learning_rate": 1e-3,
+        "wand": None  # will set after loading weights
+    }
+)
+
 # --- Load data ---
 with open('./data/tokenised/indexed_triples.json', 'r') as f:
     triples = json.load(f)
@@ -45,19 +58,19 @@ with open('./data/tokenised/indexed_triples.json', 'r') as f:
 embedding_weights = torch.load('./data/embeddings/2025_06_14__11_23_27.3.cbow.pth')
 embedding_weights = embedding_weights['emb.weight']
 embedding_dim = embedding_weights.shape[1]
+wandb.config.embedding_dim = embedding_dim
 
 dataset = TripletDataset(triples)
-batch_size = 32
+batch_size = wandb.config.batch_size
 loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
-
 
 # --- Model, optimizer ---
 model = TwoTowerModel(embedding_weights, hidden_dim=embedding_dim, freeze_emb=True)
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
+optimizer = optim.Adam(model.parameters(), lr=wandb.config.learning_rate)
 
 # --- Training loop ---
-epochs = 1
-margin = 0.2
+epochs = wandb.config.epochs
+margin = wandb.config.margin
 
 for epoch in range(epochs):
     model.train()
@@ -77,6 +90,13 @@ for epoch in range(epochs):
         total_loss += loss.item() * queries_padded.size(0)
     avg_loss = total_loss / len(dataset)
     print(f"Epoch {epoch+1}/{epochs} - Loss: {avg_loss:.4f}")
+    wandb.log({"epoch": epoch+1, "loss": avg_loss})
 
 # --- Save the model ---
-torch.save(model.state_dict(), './model/two_tower_model.pth')
+model_path = './model/two_tower_model.pth'
+torch.save(model.state_dict(), model_path)
+wandb.save(model_path)
+# Optionally, log as artifact:
+artifact = wandb.Artifact('two_tower_model', type='model')
+artifact.add_file(model_path)
+wandb.log_artifact(artifact)
