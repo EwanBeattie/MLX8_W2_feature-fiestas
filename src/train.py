@@ -74,7 +74,7 @@ logging.info("Creating TripletDataset...")
 dataset = TripletDataset(triples)
 batch_size = wandb.config.batch_size
 logging.info(f"Creating DataLoader with batch size {batch_size}...")
-loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
+loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn, num_workers=20)
 
 # --- Model, optimizer ---
 logging.info("Initializing model and optimizer...")
