@@ -7,10 +7,14 @@ from torch.utils.data import DataLoader, Dataset
 from model import TwoTowerModel
 import wandb
 from tqdm import tqdm
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 # --- Custom Dataset ---
 class TripletDataset(Dataset):
     def __init__(self, triples):
+        logging.info("Initializing TripletDataset...")
         self.samples = []
         for triple in triples:
             q = torch.tensor(triple['query'], dtype=torch.long)
@@ -21,6 +25,7 @@ class TripletDataset(Dataset):
                 pos = torch.tensor(pos_lists[i], dtype=torch.long)
                 neg = torch.tensor(neg_lists[i], dtype=torch.long)
                 self.samples.append((q, pos, neg))
+        logging.info(f"TripletDataset initialized with {len(self.samples)} samples.")
 
     def __len__(self):
         return len(self.samples)
@@ -40,11 +45,12 @@ def collate_fn(batch):
     return queries_padded, qry_lens, positives_padded, pos_lens, negatives_padded, neg_lens
 
 # --- Initialize wandb ---
+logging.info("Initializing wandb...")
 wandb.init(
     project="two-tower-training",
     config={
         "learning_rate": 1e-3,  # default value
-        "batch_size": 1024,       # default value
+        "batch_size": 32,       # default value
         "margin": 0.2,         # default value
         "epochs": 10,          # default value
         "embedding_dim": None  # will set after loading weights
@@ -52,20 +58,26 @@ wandb.init(
 )
 
 # --- Load data ---
+logging.info("Loading triples from JSON...")
 with open('./data/tokenised/indexed_triples.json', 'r') as f:
     triples = json.load(f)
+logging.info(f"Loaded {len(triples)} triples.")
 
 # --- Load pretrained embedding weights ---
+logging.info("Loading embedding weights...")
 embedding_weights = torch.load('./data/embeddings/2025_06_14__11_23_27.3.cbow.pth')
 embedding_weights = embedding_weights['emb.weight']
 embedding_dim = embedding_weights.shape[1]
 wandb.config.update({"embedding_dim": embedding_dim}, allow_val_change=True)
 
+logging.info("Creating TripletDataset...")
 dataset = TripletDataset(triples)
 batch_size = wandb.config.batch_size
+logging.info(f"Creating DataLoader with batch size {batch_size}...")
 loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
 
 # --- Model, optimizer ---
+logging.info("Initializing model and optimizer...")
 model = TwoTowerModel(embedding_weights, hidden_dim=embedding_dim, freeze_emb=True)
 optimizer = optim.Adam(model.parameters(), lr=wandb.config.learning_rate)
 
@@ -73,11 +85,15 @@ optimizer = optim.Adam(model.parameters(), lr=wandb.config.learning_rate)
 epochs = wandb.config.epochs
 margin = wandb.config.margin
 
+logging.info("Starting training loop...")
 for epoch in range(epochs):
     model.train()
     total_loss = 0
+    logging.info(f"Starting epoch {epoch+1}/{epochs}...")
     # Wrap loader with tqdm for progress bar
-    for queries_padded, qry_lens, positives_padded, pos_lens, negatives_padded, neg_lens in tqdm(loader, desc=f"Epoch {epoch+1}/{epochs}"):
+    for batch_idx, (queries_padded, qry_lens, positives_padded, pos_lens, negatives_padded, neg_lens) in enumerate(tqdm(loader, desc=f"Epoch {epoch+1}/{epochs}")):
+        if batch_idx == 0:
+            logging.info("First batch loaded from DataLoader.")
         optimizer.zero_grad()
         qry_vec = model.qry_tower(queries_padded, qry_lens)
         pos_vec = model.doc_tower(positives_padded, pos_lens)
@@ -95,6 +111,7 @@ for epoch in range(epochs):
     wandb.log({"epoch": epoch+1, "loss": avg_loss})
 
 # --- Save the model ---
+logging.info("Saving the model...")
 model_path = 'two_tower_model.pth'
 torch.save(model.state_dict(), model_path)
 wandb.save(model_path)
@@ -102,3 +119,4 @@ wandb.save(model_path)
 artifact = wandb.Artifact('two_tower_model', type='model')
 artifact.add_file(model_path)
 wandb.log_artifact(artifact)
+logging.info("Training complete and model")

@@ -17,7 +17,8 @@ parquet_file = "data/raw/train-00000-of-00001.parquet"
 logging.info("Reading Parquet file...")
 # Read the Parquet file efficiently
 parquet_file = pq.ParquetFile(parquet_file)
-df = parquet_file.read().to_pandas()
+df = parquet_file.read_row_group(0).to_pandas().head(1000)
+# df = parquet_file.read().to_pandas()
 
 # Replace with your actual column names if different
 query_column = "query"
