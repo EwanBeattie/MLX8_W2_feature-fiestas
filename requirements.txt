@@ -6,3 +6,4 @@ fastparquet
 requests
 wandb
 tqdm
+datasets
